@@ -130,8 +130,9 @@
 | `delivery-query-addresses` | 信封 `data.addresses[]`：`addressId/contactName/phone/fullAddress` | `as_list(res, "addresses")`，内层也查 `addresses` |
 | `delivery-query-stores` | 信封 `data` 直接是门店数组；门店含 `storeCode/beCode/storeName/businessStatus` | `as_list(res, "stores")` |
 | `query-meals` | 信封 `data.meals` 是 **dict[code]→{name,currentPrice,originalPrice,image,…}**；`data.categories[]` 仅展示分组（只有 `code`+`tags`，无名称价格） | 优先取 `data.meals` 目录；**不要**带 `beCode`（带则 `600057`） |
-| `list-nutrition-foods` | `data` 是**字符串**（自定义表格：`[160]{列…}:\n 猪柳麦满分,值…`），非 JSON 数组 | 暂未结构化解析 → 营养约束降级为警告（已知缺口） |
-| `query-store-coupons` / `query-my-coupons` | 返回**纯 markdown 文案**（如「麦旋风任选 ¥9.9」），无结构化 JSON | 暂未解析 → 券池为空（已知缺口），下单当前不带券 |
+| `list-nutrition-foods` | `data` 是**字符串**（自定义表格：`[160]{列…}:\n 猪柳麦满分,值…`），非 JSON 数组 | `parse_nutrition_text()` 正则解析表头列 + 逗号行，挂上 `energyKcal/protein/fat/carbohydrate/sodium/calcium`（`null` 不采） |
+| `query-store-coupons` | 结构化 JSON（`couponId`+`couponCode`+`products[]`），此前误判为 markdown | `as_list` 直取，核价按 item 级 `couponCode` 逐品注入 |
+| `query-my-coupons` | 返回**纯 markdown 文案**（如「麦旋风任选 ¥9.9」），无 `couponCode` | `parse_coupon_markdown()` 抽券名/价/有效期/标签，仅作可展示池，不下单注入 |
 | `calculate-price` | 信封 `data`：`price/originalPrice/productOriginalPrice/discount`（**单位：分**）+ `productList[]` | `productCode`+`quantity` 入参（非 `mealCode`/`count`）；**不要**带 `beCode`（带则 `600012`）；金额 `to_yuan` 除以 100 |
 | `create-order` | 必填入参 `storeCode/orderType/beType`，另需 `addressId/items` | 由 `execute_send` 在 `--confirm` 后构造（`include_address=True`） |
 
@@ -143,11 +144,12 @@
 
 ### 5.4 待补齐的已知缺口（不影响只读出方案）
 
-1. **官方营养表**为字符串格式，需写专门的文本解析器才能把「钠/热量/蛋白」挂上餐品，
-   目前该约束在方案里降级为「未收录」警告。
-2. **门店券/账户券**为 markdown 文案，需文本解析才能拿到 `couponCode/couponId`，
-   目前下单不带券（不影响出方案与下单主流程）。
-3. **真·外送下单** `orderType=2` 的 `beCode`/商品可售性组合仍需联调。
+1. ~~**官方营养表**为字符串格式，需写专门的文本解析器才能把「钠/热量/蛋白」挂上餐品~~ →
+   已用 `parse_nutrition_text()` 解析，控钠/热量/蛋白约束已生效（部分新品如「龙焰鸡腿堡三件套」
+   不在官方营养表字符串内，属数据覆盖问题，方案会标「营养数据缺失」而非硬卡）。
+2. ~~**门店券/账户券**为 markdown 文案，需文本解析才能拿到 `couponCode/couponId`~~ →
+   门店券为结构化 JSON 已直取并按 item 级 `couponCode` 逐品核价；账户券 markdown 已解析为可展示池。
+3. **真·外送下单** `orderType=2` 的 `beCode`/商品可售性组合仍需联调（需 `--confirm` 真实扣款，待验证）。
 
 ---
 

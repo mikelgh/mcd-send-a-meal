@@ -64,6 +64,20 @@ class SendPlan:
         }
 
 
+def _coupon_product_codes(coupon: dict | None) -> set[str]:
+    """从门店券结构里抽出该券适用的 productCode 集合（用于逐品匹配）。"""
+    if not isinstance(coupon, dict):
+        return set()
+    codes: set[str] = set()
+    for prod in coupon.get("products") or []:
+        if isinstance(prod, dict) and prod.get("productCode"):
+            codes.add(str(prod["productCode"]))
+    # 部分券直接带 couponCode 列表
+    for extra in coupon.get("couponCodes") or []:
+        codes.add(str(extra))
+    return codes
+
+
 def _diversify(combos: list[Combo], limit: int) -> list[Combo]:
     """挑候选时保证主餐不重样。
 
@@ -169,18 +183,33 @@ def plan_send(
     shortlist = _diversify(combos, max_combos_to_price)
     for combo in shortlist:
         best: PriceBreakdown | None = None
-        best_gms: str = ""
+        best_code: str = ""
+        best_products: set = set()
         for coupon in [None, *probe]:
-            # 真实券通过 gmServiceCode 应用（calculate-price 没有 couponId 参数）
-            gms = str(pick(coupon or {}, "gmServiceCode", "serviceCode") or "") if coupon else ""
+            # 真实券（门店券 query-store-coupons 返回的 couponCode）按「逐品」注入：
+            # calculate-price 的 item 支持 couponCode，且券通常只适用于特定商品。
+            coupon_code = str(pick(coupon or {}, "couponCode", "couponId", "code") or "") if coupon else ""
+            matched = _coupon_product_codes(coupon) if coupon else set()
+            if coupon_code and matched:
+                combo_codes = {
+                    str(pick(i, "code", "mealCode", "productCode", "id") or "")
+                    for i in combo.items
+                }
+                matched &= combo_codes
+            if coupon_code and not matched:
+                # 券与当前方案没有任何商品匹配，跳过（不强行套用）
+                continue
             args = build_order_args(
                 store_code=store.code,
                 combo=combo,
                 address_id=contact.address_id,
                 be_code=be_code,
                 be_type=be_type,
-                gm_service_code=gms or None,
             )
+            if coupon_code:  # 把券 code 打到命中的明细上
+                for it in args.get("items", []):
+                    if str(it.get("productCode")) in matched:
+                        it["couponCode"] = coupon_code
             try:
                 result = tools.calculate_price(args)
             except Exception as exc:  # noqa: BLE001 - 单组试算失败不该拖垮整个方案
@@ -191,10 +220,12 @@ def plan_send(
                 continue
             if best is None or (breakdown.payable_yuan or 1e9) < (best.payable_yuan or 1e9):
                 best = breakdown
-                best_gms = gms
+                best_code = coupon_code
+                best_products = set(matched)
         if best is not None:
             combo.price = best.to_dict()
-            combo.gm_service_code = best_gms
+            combo.applied_coupon_code = best_code
+            combo.applied_coupon_products = best_products
             priced.append(combo)
 
     if not priced:
@@ -253,16 +284,20 @@ def execute_send(
     if target is None:
         raise ValueError("没有可下单的套餐。")
 
-    gms = (target.gm_service_code or "") or None
+    coupon_code = target.applied_coupon_code or ""
     args = build_order_args(
         store_code=plan.store.code,
         combo=target,
         address_id=plan.contact.address_id,
         be_code=plan.store.be_code,
         be_type=plan.store.be_type or DELIVERY_BE_TYPE,
-        gm_service_code=gms,
         include_address=True,
     )
+    # 下单时把券 code 逐品注入（与试算一致），仅在券适用商品上生效
+    if coupon_code and target.applied_coupon_products:
+        for it in args.get("items", []):
+            if str(it.get("productCode")) in target.applied_coupon_products:
+                it["couponCode"] = coupon_code
 
     progress(f"创建订单：{'、'.join(target.names)} → {plan.contact.alias}")
     result = tools.create_order(args)

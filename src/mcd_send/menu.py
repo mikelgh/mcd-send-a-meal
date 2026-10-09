@@ -51,7 +51,9 @@ class Combo:
     notes: list[str] = field(default_factory=list)
     preference_hits: list[str] = field(default_factory=list)
     price: dict[str, Any] | None = None
-    gm_service_code: str = ""  # 该方案试算时命中并应在下单时使用的券（gmServiceCode）
+    gm_service_code: str = ""  # 兼容旧字段（团餐助餐服务码，一般不用）
+    applied_coupon_code: str = ""  # 试算时命中、下单时应逐品注入的券 code
+    applied_coupon_products: set = field(default_factory=set)  # 该券适用的 productCode 集合
 
     @property
     def names(self) -> list[str]:
@@ -69,6 +71,7 @@ class Combo:
             "notes": self.notes,
             "preference_hits": self.preference_hits,
             "price": self.price,
+            "applied_coupon_code": self.applied_coupon_code,
         }
 
 

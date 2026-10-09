@@ -22,6 +22,7 @@ import re
 from typing import Any, Iterable
 
 from .mcp_client import McpError, McDonaldMcpClient
+from .util import to_float
 
 
 class UnknownParam(McpError):
@@ -71,6 +72,101 @@ def as_dict(result: Any, *container_keys: str) -> dict:
     if isinstance(result, list) and result and isinstance(result[0], dict):
         return result[0]
     return {}
+
+
+# ---------------------------------------------------------------------------
+# 文本解析：麦当劳 MCP 的部分接口不返回结构化 JSON，而是给模型看的文本。
+# 这里把已知格式尽力解析成结构化列表，供约束求解/展示使用。
+# ---------------------------------------------------------------------------
+
+_NUTRITION_NUM_COLS = (
+    "energyKj", "energyKcal", "protein", "fat", "carbohydrate", "sodium", "calcium",
+)
+
+
+def parse_nutrition_text(text: str) -> list[dict]:
+    """解析 list-nutrition-foods 返回的自定义表格字符串。
+
+    格式示例：
+        [160]{productName,nutritionDescription,energyKj,energyKcal,protein,fat,
+              carbohydrate,sodium,calcium}:
+          猪柳麦满分,null,1288,308,16,16,24,781,213
+          火腿扒麦满分,null,1092,261,14,12,24,608,131
+
+    返回 [{name, productName, energyKcal, protein, fat, carbohydrate, sodium, calcium, ...}]。
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+    header = re.search(r"\[\d+\]\{([^}]+)\}", text)
+    if not header:
+        return []
+    cols = [c.strip() for c in header.group(1).split(",") if c.strip()]
+    rows: list[dict] = []
+    for line in text.splitlines():
+        if "{" in line and "}" in line and header.group(0) in line:
+            continue  # 表头行
+        if not line.strip():
+            continue
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < len(cols):
+            continue
+        row: dict[str, Any] = {}
+        for col, val in zip(cols, parts):
+            row[col] = val
+        name = (row.get("productName") or row.get("name") or "").strip()
+        if not name:
+            continue
+        out: dict[str, Any] = {"name": name, "productName": name}
+        for num_col in _NUTRITION_NUM_COLS:
+            if num_col in row:
+                out[num_col] = to_float(row[num_col])
+        if row.get("nutritionDescription") not in (None, "null", ""):
+            out["nutritionDescription"] = row["nutritionDescription"]
+        rows.append(out)
+    return rows
+
+
+def parse_coupon_markdown(text: str) -> list[dict]:
+    """解析 query-my-coupons 返回的 markdown 文案（账户券）。
+
+    每段以 `## 券名` 开头，下面用 `- **优惠**: ¥9.9 (用券价格)` 等罗列。
+    注意：markdown 里**不含 couponCode/couponId**，所以只能用于展示，
+    无法直接拿去 calculate-price 核价（门店券 query-store-coupons 才有结构化 code）。
+    返回 [{name, title, price_yuan, valid_until, tags}]。
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+    sections = re.split(r"\n##\s+", text)
+    coupons: list[dict] = []
+    for sec in sections[1:]:
+        lines = sec.splitlines()
+        name = lines[0].strip()
+        if not name:
+            continue
+        item: dict[str, Any] = {
+            "name": name,
+            "title": name,
+            "price_yuan": None,
+            "valid_until": None,
+            "tags": [],
+        }
+        for line in lines[1:]:
+            s = line.strip()
+            if not s.startswith("-"):
+                continue
+            if "优惠" in s or "价" in s:
+                m = re.search(r"¥\s*([\d.]+)", s)
+                if m:
+                    item["price_yuan"] = float(m.group(1))
+            elif "有效期" in s:
+                m = re.search(r"(\d{4}-\d{2}-\d{2}[^\n]*)", s)
+                if m:
+                    item["valid_until"] = m.group(1).strip().rstrip("。")
+            elif "标签" in s:
+                rest = re.sub(r"^[-*]\s*\*\*标签\*\*\s*[:：]?\s*", "", s).strip()
+                item["tags"] = [t.strip() for t in rest.split("、") if t.strip()]
+        coupons.append(item)
+    return coupons
 
 
 class ToolSchemas:
@@ -269,7 +365,12 @@ class McpTools:
         )
 
     def nutrition(self) -> list[dict]:
-        return as_list(self._call("list-nutrition-foods"), "foods")
+        res = self._call("list-nutrition-foods")
+        # list-nutrition-foods 的 data 是自定义表格字符串，不是 JSON 数组
+        data = res.get("data", res) if isinstance(res, dict) else res
+        if isinstance(data, str):
+            return parse_nutrition_text(data)
+        return as_list(res, "foods")
 
     # ------------------------------------------------------------ 优惠券
 
@@ -278,12 +379,13 @@ class McpTools:
 
         异地场景下一个反直觉的事实：同一个账户在不同城市门店的可用券
         并不相同，必须按目标门店重查，不能复用本地下单时的结论。
+
+        注意：query-store-coupons 带 beCode 会像 meals/核价一样异常，故不发送。
         """
         return as_list(
             self._call(
                 "query-store-coupons",
                 storeCode=store_code,
-                beCode=be_code or None,
                 beType=be_type or None,
                 orderType=1,
             ), "coupons"
@@ -297,7 +399,11 @@ class McpTools:
         return as_dict(self._call("auto-bind-coupons"))
 
     def my_coupons(self) -> list[dict]:
-        return as_list(self._call("query-my-coupons"), "coupons")
+        res = self._call("query-my-coupons")
+        # query-my-coupons 返回 markdown 文案；query-store-coupons 才是结构化 JSON
+        if isinstance(res, str):
+            return parse_coupon_markdown(res)
+        return as_list(res, "coupons")
 
     # ------------------------------------------------------------ 核价与下单
 
