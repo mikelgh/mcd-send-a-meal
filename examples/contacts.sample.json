@@ -1,0 +1,33 @@
+{
+  "_comment": "联系人地址簿示例。真实地址簿请放在 ~/.mcd-send-a-meal/contacts.json，或项目根目录的 contacts.json（已被 .gitignore 忽略）。",
+  "_schema": {
+    "alias": "称呼，CLI 里用 --to 指定",
+    "address_id": "delivery-create-address 返回的地址 ID，首次使用由模板流程创建",
+    "city": "所在城市，用于异地门店匹配与菜单差异比对",
+    "relation": "关系，用于自动套用收件人画像：parent / partner / friend / colleague / client",
+    "profile": "营养约束覆盖项，留空则用 relation 对应的默认画像"
+  },
+  "contacts": [
+    {
+      "alias": "爸妈",
+      "address_id": "REPLACE_WITH_REAL_ADDRESS_ID",
+      "city": "杭州",
+      "relation": "parent",
+      "profile": { "sodium_max_mg": 1500, "no_ice": true, "note": "牙口不好，避免难嚼的" }
+    },
+    {
+      "alias": "小林",
+      "address_id": "REPLACE_WITH_REAL_ADDRESS_ID",
+      "city": "深圳",
+      "relation": "partner",
+      "profile": { "energy_max_kcal": 700, "note": "在控卡，别点大份薯条" }
+    },
+    {
+      "alias": "运营组",
+      "address_id": "REPLACE_WITH_REAL_ADDRESS_ID",
+      "city": "广州",
+      "relation": "colleague",
+      "profile": { "protein_min_g": 30, "note": "加班晚餐，要扛饿" }
+    }
+  ]
+}

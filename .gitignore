@@ -1,0 +1,29 @@
+# === 凭证与个人数据（绝对不要提交）===
+.env
+.env.*
+*.token
+*.key
+secrets.json
+
+# 本机联系人地址簿：含真实收货地址、姓名、手机号，仅存本地
+contacts.json
+profiles.json
+out/
+*.card.html
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# === 编辑器 / 系统 ===
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
