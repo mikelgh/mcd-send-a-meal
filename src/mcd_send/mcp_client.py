@@ -19,12 +19,36 @@ import os
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 ENDPOINT = "https://mcp.mcd.cn"
 PROTOCOL_VERSION = "2025-06-18"
 TOKEN_ENV = "MCD_MCP_TOKEN"
 ENDPOINT_ENV = "MCD_MCP_ENDPOINT"
+
+# .env 加载：用户常把 Token 写进项目根目录的 .env（字段名可能是小写的 mcp_token）。
+# 如果环境变量里还没有 MCD_MCP_TOKEN，就扫描 .env 把它补进环境，做到「存 .env 即生效」。
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _prime_token_env() -> None:
+    """若 MCD_MCP_TOKEN 未设置，尝试从 .env 读取（兼容 mcp_token / MCD_MCP_TOKEN 两种键名）。"""
+    if os.environ.get(TOKEN_ENV):
+        return
+    candidates = [Path.cwd() / ".env", _PROJECT_ROOT / ".env"]
+    for path in candidates:
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("mcp_token=") or line.startswith("MCD_MCP_TOKEN="):
+                value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                if value:
+                    os.environ[TOKEN_ENV] = value
+                return
 
 
 class McpError(RuntimeError):
@@ -73,6 +97,9 @@ class McDonaldMcpClient:
         max_retries: int = 2,
     ) -> None:
         self.token = (token or os.environ.get(TOKEN_ENV, "")).strip()
+        if not self.token:
+            _prime_token_env()
+            self.token = (token or os.environ.get(TOKEN_ENV, "")).strip()
         if not self.token:
             raise McpError(
                 f"未找到 MCP Token。请先设置环境变量 {TOKEN_ENV}。\n"
