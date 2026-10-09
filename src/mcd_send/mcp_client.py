@@ -214,10 +214,63 @@ class McDonaldMcpClient:
         return _unwrap_tool_result(result, name)
 
 
-def _unwrap_tool_result(result: Any, tool_name: str) -> Any:
-    """MCP 的 tools/call 返回 content 数组，其中文本块里通常是 JSON 字符串。
+def _extract_first_json(text: str) -> Any | None:
+    """从可能夹杂 markdown 说明的文本里取出第一个平衡的大 JSON 对象/数组。
 
-    这里做一次尽力而为的解包：能解成 JSON 就返回对象，否则原样返回文本。
+    麦当劳 MCP 的 tools/call 返回的是「给模型看的」markdown，真实数据往往
+    嵌在一段 JSON 信封（含 success/code/data）里。这里做一次尽力而为的提取，
+    拿不到就返回 None（调用方会保留原文本）。
+    """
+    if not text:
+        return None
+    candidates: list[Any] = []
+    for opener, closer in (("{", "}"), ("[", "]")):
+        start = text.find(opener)
+        while start != -1:
+            depth = 0
+            in_str = False
+            esc = False
+            end = -1
+            for i in range(start, len(text)):
+                ch = text[i]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif ch == "\\":
+                        esc = True
+                    elif ch == '"':
+                        in_str = False
+                    continue
+                if ch == '"':
+                    in_str = True
+                elif ch == opener:
+                    depth += 1
+                elif ch == closer:
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end == -1:
+                break
+            frag = text[start : end + 1]
+            try:
+                candidates.append(json.loads(frag))
+            except json.JSONDecodeError:
+                pass
+            start = text.find(opener, start + 1)
+    # 优先返回 API 信封（含 success/data/code 的对象），避免命中 markdown 里的小片段
+    for cand in candidates:
+        if isinstance(cand, dict) and ("success" in cand or "data" in cand or "code" in cand):
+            return cand
+    return candidates[0] if candidates else None
+
+
+def _unwrap_tool_result(result: Any, tool_name: str) -> Any:
+    """MCP 的 tools/call 返回 content 数组。
+
+    文本块里有时是干净 JSON，有时是「给模型看的」markdown（真实数据裹在
+    内嵌 JSON 信封里）。这里两层解包：先整体 json.loads，失败再从 markdown
+    里提取第一个 JSON 信封；都拿不到就保留原文本，交给上层 as_list/as_dict 兜底。
     """
     if not isinstance(result, dict):
         return result
@@ -243,7 +296,8 @@ def _unwrap_tool_result(result: Any, tool_name: str) -> Any:
             try:
                 decoded.append(json.loads(text))
             except (json.JSONDecodeError, TypeError):
-                decoded.append(text)
+                obj = _extract_first_json(text)
+                decoded.append(obj if obj is not None else text)
         elif block.get("type") == "resource":
             decoded.append(block.get("resource"))
         else:

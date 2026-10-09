@@ -90,30 +90,30 @@ class FixtureTools:
             {"addressId": "A-SZ-02", "city": "深圳", "detail": "** 大厦 ** 层"},
         ]
 
-    def create_address(self, contact_name: str, phone: str, address: str) -> dict:
+    def create_address(self, contact_name: str, phone: str, address: str, city: str = "", address_detail: str | None = None) -> dict:
         self._log("delivery-create-address", {"contactName": contact_name})
-        return {"addressId": "A-NEW-99", "city": self.city}
+        return {"addressId": "A-NEW-99", "city": city or self.city}
 
-    def stores_for_address(self, address_id: str) -> list[dict]:
+    def stores_for_address(self, address_id: str, be_type: str = "5") -> list[dict]:
         self._log("delivery-query-stores", {"addressId": address_id})
         return [
-            {"storeCode": "HZ-0188", "storeName": "杭州文三路店",
+            {"storeCode": "HZ-0188", "storeName": "杭州文三路店", "beCode": "B-HZ-0188",
              "distance": 1.2, "eta": 26, "businessStatus": "营业中", "beType": 5},
-            {"storeCode": "HZ-0231", "storeName": "杭州黄龙店",
+            {"storeCode": "HZ-0231", "storeName": "杭州黄龙店", "beCode": "B-HZ-0231",
              "distance": 2.7, "eta": 34, "businessStatus": "营业中", "beType": 5},
-            {"storeCode": "HZ-0402", "storeName": "杭州西溪店",
+            {"storeCode": "HZ-0402", "storeName": "杭州西溪店", "beCode": "B-HZ-0402",
              "distance": 4.9, "eta": 48, "businessStatus": "休息中", "beType": 5},
         ]
 
-    def nearby_stores(self, keyword: str) -> list[dict]:
+    def nearby_stores(self, keyword: str, be_type: str = "5", search_type: str = "1") -> list[dict]:
         self._log("query-nearby-stores", {"keyword": keyword})
         return self.stores_for_address("A-LOCAL")
 
-    def meals(self, store_code: str) -> list[dict]:
-        self._log("query-meals", {"storeCode": store_code})
+    def meals(self, store_code: str, be_code: str = "", be_type: str = "") -> list[dict]:
+        self._log("query-meals", {"storeCode": store_code, "beCode": be_code, "beType": be_type})
         return list(MEALS)
 
-    def meal_detail(self, store_code: str, meal_code: str) -> dict:
+    def meal_detail(self, store_code: str, meal_code: str, be_code: str = "", be_type: str = "") -> dict:
         self._log("query-meal-detail", {"storeCode": store_code, "mealCode": meal_code})
         for meal in MEALS:
             if meal["mealCode"] == meal_code:
@@ -124,7 +124,7 @@ class FixtureTools:
         self._log("list-nutrition-foods", {})
         return list(NUTRITION)
 
-    def store_coupons(self, store_code: str) -> list[dict]:
+    def store_coupons(self, store_code: str, be_code: str = "", be_type: str = "") -> list[dict]:
         self._log("query-store-coupons", {"storeCode": store_code})
         return list(COUPONS)
 

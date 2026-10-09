@@ -73,7 +73,7 @@
                       └─► calculate-price(...) ×N 组            # 官方核价，排序候选
 
                  ┌──────────── 写入阶段 execute_send(confirm) ─┐
-                 └─► create-order(payload + couponId) ──► 支付链接
+                 └─► create-order(payload, addressId) ──► 支付链接
                       └─► query-order() 跟踪配送 / cancel-order() 取消
 ```
 
@@ -82,10 +82,16 @@
 
 ---
 
-## 4. 关键工程问题：平台未公开 tool 入参 schema
+## 4. 关键工程问题：响应是「给模型看的」markdown，不是干净 JSON
 
-麦当劳 MCP 未公开每个工具的 `inputSchema`，参数名（`storeCode` 还是 `store_code`）
-只能运行时通过 `tools/list` 问出来。硬猜参数名会在换机/平台发版时全线报错。
+`tools/list` **确实有**每个工具的 `inputSchema`（本项目 `inspect` 子命令就是读它），
+参数名可以运行时拿到并归一化匹配。真正的坑在 `tools/call` 的**返回**：
+
+- 麦当劳 MCP 的 `tools/call` 返回的是**面向 LLM 的 markdown 文本块**，真实数据往往
+  裹在一个 JSON 信封 `{ "success": true, "code": 200, "data": {...} }` 里。
+- 例如 `delivery-query-addresses` 会先给一段「字段展示规范」的 markdown 表格，最后才附上上面的 JSON。
+- 所以 `_unwrap_tool_result` 不能只做 `json.loads`：先整体解析，失败再用
+  `mcp_client._extract_first_json` 从 markdown 里提取第一个平衡的 JSON 信封。
 
 本项目采用 **schema 驱动参数解析**（`src/mcd_send/tools.py` 的 `ToolSchemas`）：
 
@@ -97,7 +103,55 @@
 
 ---
 
-## 5. 业务价值
+## 5. 真实 API 契约（2026-10-09 实测）
+
+以下均用真实 Token 跑通验证，是本项目能端到端出方案的依据。**参数名/单位与直觉差异很大，
+单测与文档之外务必以 `inspect` 实时为准**。
+
+### 5.1 门店类型 `beType` 与外送
+
+| 值 | 含义 | 代送是否用 |
+| --- | --- | --- |
+| `1` | 到店取餐 | 否 |
+| `2` | 麦乐送到家（外送） | ✅ 代送默认 |
+| `5` | 得来速 DT | 否 |
+| `6` | 企业团餐 | 否（券走 `gmServiceCode`） |
+
+- `delivery-query-stores` 在外送场景**只接受 `beType=2`（或 `6`）**，传 `5` 会报
+  `600049「外送场景下，仅支持麦乐送(beType=2)和团餐(beType=6)两种」`。本项目默认 `beType=2`。
+- `orderType` 语义：`1`=到店（含自取+DT），`2`=外送（含麦乐送+团餐）。**只读出方案阶段用
+  `beType=2 + orderType=1` 即可核价**（返回商品价，不含配送费）；真·外送下单 `orderType=2`
+  必传 `beCode`，且部分商品会报 `60006「商品已售罄或不可售」`，需另行处理。
+
+### 5.2 各工具返回结构与口径
+
+| 工具 | 真实返回要点 | 本项目解析方式 |
+| --- | --- | --- |
+| `delivery-query-addresses` | 信封 `data.addresses[]`：`addressId/contactName/phone/fullAddress` | `as_list(res, "addresses")`，内层也查 `addresses` |
+| `delivery-query-stores` | 信封 `data` 直接是门店数组；门店含 `storeCode/beCode/storeName/businessStatus` | `as_list(res, "stores")` |
+| `query-meals` | 信封 `data.meals` 是 **dict[code]→{name,currentPrice,originalPrice,image,…}**；`data.categories[]` 仅展示分组（只有 `code`+`tags`，无名称价格） | 优先取 `data.meals` 目录；**不要**带 `beCode`（带则 `600057`） |
+| `list-nutrition-foods` | `data` 是**字符串**（自定义表格：`[160]{列…}:\n 猪柳麦满分,值…`），非 JSON 数组 | 暂未结构化解析 → 营养约束降级为警告（已知缺口） |
+| `query-store-coupons` / `query-my-coupons` | 返回**纯 markdown 文案**（如「麦旋风任选 ¥9.9」），无结构化 JSON | 暂未解析 → 券池为空（已知缺口），下单当前不带券 |
+| `calculate-price` | 信封 `data`：`price/originalPrice/productOriginalPrice/discount`（**单位：分**）+ `productList[]` | `productCode`+`quantity` 入参（非 `mealCode`/`count`）；**不要**带 `beCode`（带则 `600012`）；金额 `to_yuan` 除以 100 |
+| `create-order` | 必填入参 `storeCode/orderType/beType`，另需 `addressId/items` | 由 `execute_send` 在 `--confirm` 后构造（`include_address=True`） |
+
+### 5.3 金额单位
+
+- `calculate-price` 返回**分**（如 `price: 3350` = ¥33.50），`parse_price_result` 统一 `to_yuan()` 除以 100。
+- `query-meals` 目录里的 `currentPrice/originalPrice` 是**元**的字符串（如 `"33.5"`），仅作展示/本地预估，
+  **最终应付一律以 `calculate-price` 为准**。
+
+### 5.4 待补齐的已知缺口（不影响只读出方案）
+
+1. **官方营养表**为字符串格式，需写专门的文本解析器才能把「钠/热量/蛋白」挂上餐品，
+   目前该约束在方案里降级为「未收录」警告。
+2. **门店券/账户券**为 markdown 文案，需文本解析才能拿到 `couponCode/couponId`，
+   目前下单不带券（不影响出方案与下单主流程）。
+3. **真·外送下单** `orderType=2` 的 `beCode`/商品可售性组合仍需联调。
+
+---
+
+## 6. 业务价值
 
 - **填补空白赛道**：96 个报名项目里「异地代送」0 命中，本项目是唯一的代送方案。
 - **真正用对了 MCP 能力**：不是简单套 `query-nearby-stores` + `create-order`，而是把代送链路里
@@ -109,7 +163,7 @@
 
 ---
 
-## 6. 错误处理与限流
+## 7. 错误处理与限流
 
 - `401` → 提示 Token 无效/过期，引导去控制台重复制。
 - `429` → 触发 `RateLimitError`，客户端指数退避后重试（最多 `max_retries` 次）。

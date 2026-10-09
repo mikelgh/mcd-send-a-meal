@@ -51,6 +51,7 @@ class Combo:
     notes: list[str] = field(default_factory=list)
     preference_hits: list[str] = field(default_factory=list)
     price: dict[str, Any] | None = None
+    gm_service_code: str = ""  # 该方案试算时命中并应在下单时使用的券（gmServiceCode）
 
     @property
     def names(self) -> list[str]:

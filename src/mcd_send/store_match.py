@@ -33,6 +33,8 @@ class StoreScore:
     eta_min: float | None
     is_open: bool
     score: float
+    be_code: str = ""
+    be_type: str = ""
     reasons: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -43,12 +45,22 @@ class StoreScore:
             "eta_min": self.eta_min,
             "is_open": self.is_open,
             "score": round(self.score, 4),
+            "be_code": self.be_code,
+            "be_type": self.be_type,
             "reasons": self.reasons,
         }
 
 
 def _store_code(store: dict) -> str:
     return str(pick(store, "storeCode", "store_code", "code", "id", "storeId", "beCode") or "")
+
+
+def _store_be_code(store: dict) -> str:
+    return str(pick(store, "beCode", "be_code", "beId") or "")
+
+
+def _store_be_type(store: dict) -> str:
+    return str(pick(store, "beType", "be_type") or "")
 
 
 def _store_name(store: dict) -> str:
@@ -104,7 +116,8 @@ def score_stores(
             reasons.append("当前不可配送，已排除")
             scored.append(
                 StoreScore(store, _store_code(store), _store_name(store),
-                           distance, eta, False, 0.0, reasons)
+                           distance, eta, False, 0.0,
+                           _store_be_code(store), _store_be_type(store), reasons)
             )
             continue
 
@@ -131,7 +144,8 @@ def score_stores(
 
         scored.append(
             StoreScore(store, _store_code(store), _store_name(store),
-                       distance, eta, open_now, score, reasons)
+                       distance, eta, open_now, score,
+                       _store_be_code(store), _store_be_type(store), reasons)
         )
 
     scored.sort(key=lambda s: (-s.score, s.code))

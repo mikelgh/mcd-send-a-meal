@@ -22,10 +22,13 @@ from .util import pick, to_float
 
 UNIT_ENV = "MCD_PRICE_UNIT"
 
-TOTAL_KEYS = ("totalAmount", "originalAmount", "totalPrice", "amount", "orderAmount")
+TOTAL_KEYS = (
+    "totalAmount", "originalAmount", "totalPrice", "amount", "orderAmount",
+    "originalPrice", "productOriginalPrice", "productPrice",
+)
 PAYABLE_KEYS = (
     "payableAmount", "payAmount", "actualAmount", "needPayAmount",
-    "finalAmount", "totalFee", "payable",
+    "finalAmount", "totalFee", "payable", "price", "productPrice",
 )
 DELIVERY_KEYS = ("deliveryFee", "deliveryPrice", "shippingFee", "deliverFee", "freight")
 DISCOUNT_KEYS = ("discountAmount", "couponAmount", "reduceAmount", "discount", "preferentialAmount")
@@ -162,32 +165,47 @@ def build_order_args(
     *,
     store_code: str,
     combo: Combo,
-    address_id: str | None,
+    address_id: str | None = None,
     order_type: int = 1,
-    coupon_id: str | None = None,
+    be_code: str = "",
+    be_type: str = "",
+    gm_service_code: str | None = None,
+    include_address: bool = False,
 ) -> dict[str, Any]:
-    """构造下单/核价参数。
+    """构造核价/下单参数。
 
     参数名这块**故意不猜死**：`ToolSchemas.resolve()` 会拿平台真实的
     inputSchema 做一次归一化匹配，匹配不上就带着合法参数名报错，
     所以第一次真实调用就能拿到准确反馈，不会静默失败。
+
+    真实必填项（calculate-price / create-order 通用）：
+        storeCode / beType / orderType（外送=1）/ items
+    - 券通过 `gmServiceCode` 传入（calculate-price 没有 couponId 参数）。
+    - `addressId` 只有 create-order 需要，由 `include_address=True` 控制，
+      calculate-price 的 schema 里根本没有这个字段，硬传会被 resolve 拒掉。
     """
     items: list[dict[str, Any]] = []
     for item in combo.items:
         code = pick(item, "code", "mealCode", "spuId", "productCode", "id")
         if not code:
             continue
-        items.append({"mealCode": str(code), "count": 1})
+        # calculate-price / create-order 的 item 字段是 productCode + quantity
+        # （不是 mealCode/count，实测 mealCode 会报 600010「缺少商品code」）
+        items.append({"productCode": str(code), "quantity": 1})
 
     args: dict[str, Any] = {
         "storeCode": store_code,
+        "beType": be_type or None,
         "orderType": order_type,
         "items": items,
     }
-    if address_id:
+    # 注意：beCode 在 orderType=1（麦乐送核价/菜单）路径下带了反而报错
+    # （calculate-price 600012 / query-meals 600057），故此处不发送；
+    # 真·外送下单(orderType=2)若平台要求 beCode 再单独处理。
+    if include_address and address_id:
         args["addressId"] = address_id
-    if coupon_id:
-        args["couponId"] = coupon_id
+    if gm_service_code:
+        args["gmServiceCode"] = gm_service_code
     return args
 
 

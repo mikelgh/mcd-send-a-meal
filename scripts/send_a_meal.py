@@ -287,7 +287,7 @@ def cmd_card(args) -> int:
 def cmd_address_new(args) -> int:
     tools = make_tools(args.dry_run, city=args.city)
     try:
-        result = tools.create_address(args.name, args.phone, args.address)
+        result = tools.create_address(args.name, args.phone, args.address, args.city, args.address_detail)
     except McpError as exc:
         say(f"创建地址失败：{exc}")
         return 2
@@ -340,7 +340,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_addr = sub.add_parser("address-new", help="为收件人新建一条配送地址")
     p_addr.add_argument("--name", required=True, help="收件人姓名")
     p_addr.add_argument("--phone", required=True, help="收件人手机号")
-    p_addr.add_argument("--address", required=True, help="详细地址")
+    p_addr.add_argument("--address", required=True, help="街道/门牌等地址主体")
+    p_addr.add_argument("--city", required=True, help="城市（必填，真实接口要求）")
+    p_addr.add_argument("--address-detail", default=None, help="地址详情（省略则与 --address 相同）")
     p_addr.set_defaults(func=cmd_address_new)
 
     return parser

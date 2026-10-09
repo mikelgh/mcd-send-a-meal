@@ -28,6 +28,7 @@ from .pricing import (
     top_coupons,
 )
 from .store_match import StoreScore, pick_store
+from .tools import DELIVERY_BE_TYPE
 from .util import pick
 
 ProgressFn = Callable[[str], None]
@@ -123,13 +124,15 @@ def plan_send(
             "或换成收件人公司/家附近的另一个地址。"
         )
     store = pick_store(stores)
+    be_code = store.be_code
+    be_type = store.be_type or DELIVERY_BE_TYPE
     progress(
         f"选中门店 {store.name}（{store.code}）"
         + (f" · {store.distance_km:g}km" if store.distance_km is not None else "")
     )
 
     progress("拉取该门店真实在售菜单")
-    meals = tools.meals(store.code)
+    meals = tools.meals(store.code, be_code, be_type)
     if not meals:
         raise ValueError(f"门店 {store.name} 没有返回菜单，无法继续。")
 
@@ -151,7 +154,7 @@ def plan_send(
         )
 
     progress(f"按收件人所在门店重查可用券（门店 {store.code}）")
-    coupons = tools.store_coupons(store.code)
+    coupons = tools.store_coupons(store.code, be_code, be_type)
     if not coupons:
         coupons = tools.my_coupons()
         if coupons:
@@ -166,12 +169,17 @@ def plan_send(
     shortlist = _diversify(combos, max_combos_to_price)
     for combo in shortlist:
         best: PriceBreakdown | None = None
+        best_gms: str = ""
         for coupon in [None, *probe]:
+            # 真实券通过 gmServiceCode 应用（calculate-price 没有 couponId 参数）
+            gms = str(pick(coupon or {}, "gmServiceCode", "serviceCode") or "") if coupon else ""
             args = build_order_args(
                 store_code=store.code,
                 combo=combo,
                 address_id=contact.address_id,
-                coupon_id=pick(coupon or {}, "couponId", "id", "code") if coupon else None,
+                be_code=be_code,
+                be_type=be_type,
+                gm_service_code=gms or None,
             )
             try:
                 result = tools.calculate_price(args)
@@ -183,8 +191,10 @@ def plan_send(
                 continue
             if best is None or (breakdown.payable_yuan or 1e9) < (best.payable_yuan or 1e9):
                 best = breakdown
+                best_gms = gms
         if best is not None:
             combo.price = best.to_dict()
+            combo.gm_service_code = best_gms
             priced.append(combo)
 
     if not priced:
@@ -243,12 +253,15 @@ def execute_send(
     if target is None:
         raise ValueError("没有可下单的套餐。")
 
-    coupon_id = (target.price or {}).get("coupon_id") or None
+    gms = (target.gm_service_code or "") or None
     args = build_order_args(
         store_code=plan.store.code,
         combo=target,
         address_id=plan.contact.address_id,
-        coupon_id=coupon_id,
+        be_code=plan.store.be_code,
+        be_type=plan.store.be_type or DELIVERY_BE_TYPE,
+        gm_service_code=gms,
+        include_address=True,
     )
 
     progress(f"创建订单：{'、'.join(target.names)} → {plan.contact.alias}")

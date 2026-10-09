@@ -32,8 +32,19 @@ def _norm(key: str) -> str:
     return re.sub(r"[^a-z0-9]", "", key.lower())
 
 
+# 外送场景的门店类型：麦当劳 MCP 明确「外送仅支持麦乐送(beType=2)和团餐(beType=6)」。
+# 代送项目只做个人外送，所以默认用 2。
+DELIVERY_BE_TYPE = "2"
+# 下单类型：1=外送。
+DELIVERY_ORDER_TYPE = 1
+
+
 def as_list(result: Any, *container_keys: str) -> list:
-    """MCP 返回的列表有时裸数组、有时包在 data/list/items 里，统一抽出来。"""
+    """MCP 返回的列表有时裸数组、有时包在 data/list/items 里，统一抽出来。
+
+    嵌套结构也覆盖：例如 envelope 的 data 是 {"addresses": [...]} 时，
+    会把 container_keys（addresses）也算进内层查找键。
+    """
     if isinstance(result, list):
         return result
     if isinstance(result, dict):
@@ -42,7 +53,7 @@ def as_list(result: Any, *container_keys: str) -> list:
             if isinstance(value, list):
                 return value
             if isinstance(value, dict):
-                for inner in ("list", "items", "records", "data"):
+                for inner in ("list", "items", "records", "data", *container_keys):
                     if isinstance(value.get(inner), list):
                         return value[inner]
         for key in container_keys:
@@ -180,41 +191,80 @@ class McpTools:
     def list_addresses(self) -> list[dict]:
         return as_list(self._call("delivery-query-addresses"), "addresses")
 
-    def create_address(self, contact_name: str, phone: str, address: str) -> dict:
-        """创建一条可配送地址。收件人不在自己身边时，这一步是代送的前提。"""
+    def create_address(
+        self, contact_name: str, phone: str, address: str, city: str, address_detail: str | None = None
+    ) -> dict:
+        """创建一条可配送地址。收件人不在自己身边时，这一步是代送的前提。
+
+        `addressDetail*` / `city*` 为真实必填项，必须显式传入。
+        """
         return as_dict(
             self._call(
                 "delivery-create-address",
                 contactName=contact_name,
                 phone=phone,
                 address=address,
+                addressDetail=address_detail or address,
+                city=city,
             )
         )
 
     # ------------------------------------------------------------ 门店（关键：按收件人地址找店）
 
-    def stores_for_address(self, address_id: str) -> list[dict]:
+    def stores_for_address(self, address_id: str, be_type: str = DELIVERY_BE_TYPE) -> list[dict]:
         """按**收件人地址**查可配送门店——不是查我附近的店。
 
         这一步是整个代送项目的技术核心：异地送餐必须把「查店原点」
         从下单人切换到收件人。
+        `beType` 为必填，外送默认 "2"（麦乐送）；团餐用 "6"。
         """
         return as_list(
-            self._call("delivery-query-stores", addressId=address_id), "stores"
+            self._call("delivery-query-stores", addressId=address_id, beType=be_type), "stores"
         )
 
-    def nearby_stores(self, keyword: str) -> list[dict]:
-        return as_list(self._call("query-nearby-stores", keyword=keyword), "stores")
+    def nearby_stores(self, keyword: str, be_type: str = DELIVERY_BE_TYPE, search_type: str = "1") -> list[dict]:
+        return as_list(
+            self._call("query-nearby-stores", beType=be_type, keyword=keyword, searchType=search_type), "stores"
+        )
 
     # ------------------------------------------------------------ 菜单与营养
 
-    def meals(self, store_code: str) -> list[dict]:
-        return as_list(self._call("query-meals", storeCode=store_code), "meals")
+    def meals(self, store_code: str, be_code: str = "", be_type: str = DELIVERY_BE_TYPE) -> list[dict]:
+        # 实测：query-meals 用 storeCode + beType=2 + orderType=1 即可返回菜单；
+        # 带上 beCode 反而触发「门店可能已关闭」(600057)。代送只取菜单，故不传 beCode。
+        data = self._call(
+            "query-meals",
+            storeCode=store_code,
+            beType=be_type or None,
+            orderType=DELIVERY_ORDER_TYPE,
+        )
+        inner = data.get("data", data) if isinstance(data, dict) else data
+        # 真实目录在 data.meals：dict[code] -> {name, currentPrice, originalPrice, ...}
+        catalog = inner.get("meals") if isinstance(inner, dict) else None
+        if isinstance(catalog, dict):
+            out: list[dict] = []
+            for code, info in catalog.items():
+                if isinstance(info, dict):
+                    item = dict(info)
+                    item.setdefault("code", str(code))
+                    out.append(item)
+            if out:
+                return out
+        # 兜底：展开 data.categories[].meals（仅含 code/tags，无名称价格）
+        flat: list[dict] = []
+        for cat in as_list(inner, "categories") if isinstance(inner, dict) else []:
+            if isinstance(cat, dict):
+                flat.extend(as_list(cat, "meals"))
+        return flat
 
-    def meal_detail(self, store_code: str, meal_code: str) -> dict:
+    def meal_detail(self, store_code: str, meal_code: str, be_code: str = "", be_type: str = DELIVERY_BE_TYPE) -> dict:
         return as_dict(
             self._call(
-                "query-meal-detail", storeCode=store_code, mealCode=meal_code
+                "query-meal-detail",
+                storeCode=store_code,
+                beType=be_type or None,
+                code=meal_code,
+                orderType=DELIVERY_ORDER_TYPE,
             )
         )
 
@@ -223,14 +273,20 @@ class McpTools:
 
     # ------------------------------------------------------------ 优惠券
 
-    def store_coupons(self, store_code: str) -> list[dict]:
+    def store_coupons(self, store_code: str, be_code: str = "", be_type: str = DELIVERY_BE_TYPE) -> list[dict]:
         """查**收件人所在门店**的可用券。
 
         异地场景下一个反直觉的事实：同一个账户在不同城市门店的可用券
         并不相同，必须按目标门店重查，不能复用本地下单时的结论。
         """
         return as_list(
-            self._call("query-store-coupons", storeCode=store_code), "coupons"
+            self._call(
+                "query-store-coupons",
+                storeCode=store_code,
+                beCode=be_code or None,
+                beType=be_type or None,
+                orderType=1,
+            ), "coupons"
         )
 
     def claimable_coupons(self) -> list[dict]:
@@ -254,9 +310,10 @@ class McpTools:
     def query_order(self, order_id: str) -> dict:
         return as_dict(self._call("query-order", orderId=order_id))
 
-    def cancel_order(self, order_id: str, reason: str = "") -> dict:
+    def cancel_order(self, order_id: str, reason: str = "1") -> dict:
+        # 真实必填参数是 cancelReasonCode（不是 cancelReason）
         return as_dict(
-            self._call("cancel-order", orderId=order_id, cancelReason=reason or None)
+            self._call("cancel-order", orderId=order_id, cancelReasonCode=reason)
         )
 
 
