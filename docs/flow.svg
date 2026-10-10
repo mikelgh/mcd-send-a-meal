@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" font-family="'PingFang SC','Microsoft YaHei','Hiragino Sans GB',sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="8" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L9,4 L0,8 Z" fill="#E4002B"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="900" height="300" fill="#ffffff"/>
+
+  <text x="26" y="32" font-size="20" font-weight="700" fill="#E4002B">麦麦代送 · 工作流（异地代送，不是自点）</text>
+
+  <!-- boxes -->
+  <!-- Box 1 -->
+  <rect x="26" y="60" width="128" height="76" rx="10" fill="#fff" stroke="#E4002B" stroke-width="2"/>
+  <circle cx="44" cy="78" r="11" fill="#E4002B"/>
+  <text x="44" y="82" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+  <text x="90" y="92" font-size="14" font-weight="700" fill="#1a1a1a" text-anchor="middle">收件人地址</text>
+  <text x="90" y="116" font-size="10.5" fill="#666" text-anchor="middle">contacts.json</text>
+
+  <!-- Box 2 -->
+  <rect x="170" y="60" width="128" height="76" rx="10" fill="#fff" stroke="#E4002B" stroke-width="2"/>
+  <circle cx="188" cy="78" r="11" fill="#E4002B"/>
+  <text x="188" y="82" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+  <text x="234" y="92" font-size="14" font-weight="700" fill="#1a1a1a" text-anchor="middle">选址·收件人</text>
+  <text x="234" y="116" font-size="10.5" fill="#666" text-anchor="middle">delivery-query-stores</text>
+
+  <!-- Box 3 -->
+  <rect x="314" y="60" width="128" height="76" rx="10" fill="#fff" stroke="#E4002B" stroke-width="2"/>
+  <circle cx="332" cy="78" r="11" fill="#E4002B"/>
+  <text x="332" y="82" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+  <text x="378" y="92" font-size="14" font-weight="700" fill="#1a1a1a" text-anchor="middle">收件人门店菜单</text>
+  <text x="378" y="116" font-size="10.5" fill="#666" text-anchor="middle">那家店在售</text>
+
+  <!-- Box 4 -->
+  <rect x="458" y="60" width="128" height="76" rx="10" fill="#fff" stroke="#E4002B" stroke-width="2"/>
+  <circle cx="476" cy="78" r="11" fill="#E4002B"/>
+  <text x="476" y="82" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+  <text x="522" y="92" font-size="14" font-weight="700" fill="#1a1a1a" text-anchor="middle">门店券重查</text>
+  <text x="522" y="116" font-size="10.5" fill="#666" text-anchor="middle">按门店重查</text>
+
+  <!-- Box 5 -->
+  <rect x="602" y="60" width="128" height="76" rx="10" fill="#fff" stroke="#E4002B" stroke-width="2"/>
+  <circle cx="620" cy="78" r="11" fill="#E4002B"/>
+  <text x="620" y="82" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+  <text x="666" y="92" font-size="14" font-weight="700" fill="#1a1a1a" text-anchor="middle">官方核价</text>
+  <text x="666" y="116" font-size="10.5" fill="#666" text-anchor="middle">calculate-price</text>
+
+  <!-- Box 6 -->
+  <rect x="746" y="60" width="128" height="76" rx="10" fill="#fff" stroke="#E4002B" stroke-width="2"/>
+  <circle cx="764" cy="78" r="11" fill="#E4002B"/>
+  <text x="764" y="82" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">6</text>
+  <text x="810" y="92" font-size="14" font-weight="700" fill="#1a1a1a" text-anchor="middle">人工确认</text>
+  <text x="810" y="116" font-size="10.5" fill="#666" text-anchor="middle">--confirm 才下单</text>
+
+  <!-- arrows between boxes -->
+  <line x1="154" y1="98" x2="168" y2="98" stroke="#E4002B" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="298" y1="98" x2="312" y2="98" stroke="#E4002B" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="442" y1="98" x2="456" y2="98" stroke="#E4002B" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="586" y1="98" x2="600" y2="98" stroke="#E4002B" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <line x1="730" y1="98" x2="744" y2="98" stroke="#E4002B" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- down arrow to result -->
+  <line x1="810" y1="136" x2="810" y2="168" stroke="#E4002B" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- result box -->
+  <rect x="26" y="170" width="848" height="56" rx="10" fill="#E4002B"/>
+  <text x="450" y="196" font-size="16" font-weight="700" fill="#fff" text-anchor="middle">生成单文件 HTML 卡片 → 发给收件人</text>
+  <text x="450" y="216" font-size="12" fill="#ffe3e8" text-anchor="middle">餐品 · 营养 · 价格 · 配送进度，可离线转发</text>
+
+  <!-- key note -->
+  <rect x="26" y="244" width="848" height="40" rx="8" fill="#fff4f5" stroke="#E4002B" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="450" y="269" font-size="13.5" fill="#b3001b" text-anchor="middle">关键：把「查店原点」从下单人切到收件人 —— 我附近的店，根本送不到爸妈那儿</text>
+</svg>

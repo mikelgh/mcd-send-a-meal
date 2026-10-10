@@ -7,6 +7,8 @@
 
 **开发方式**：全程使用腾讯 **WorkBuddy** 开发（含 Skill 形态），详见 [`workbuddy.md`](workbuddy.md)。
 
+![麦麦代送工作流](docs/flow.svg)
+
 ---
 
 ## 一句话场景
